@@ -1,0 +1,93 @@
+/**
+	Author:		@bow_chung
+	Last Edit:	01/04/2018
+	Source:		https://docs.microsoft.com/en-us/sql/relational-databases/extended-events/quick-start-extended-events-in-sql-server
+				http://www.sqlsolutionsgroup.com/how-to-file-target-use/
+	Desc:		Setting Up an event session
+**/
+
+
+-- must be over version 2014+
+
+SELECT @@version
+
+
+-- Issue a DROP EVENT SESSION in case the name already exists
+
+IF EXISTS (SELECT *
+      FROM sys.server_event_sessions    -- If Microsoft SQL Server.
+    --FROM sys.database_event_sessions  -- If Azure SQL Database in the cloud.
+      WHERE name = 'YourSession')
+BEGIN
+    DROP EVENT SESSION YourSession
+          ON SERVER;    -- If Microsoft SQL Server.
+        --ON DATABASE;  -- If Azure SQL Database.
+END
+GO
+
+-- Create event session
+
+CREATE EVENT SESSION [YourSession] ON SERVER 
+ADD EVENT sqlserver.sql_statement_completed(
+    WHERE ([sqlserver].[like_i_sql_unicode_string]([sqlserver].[sql_text],N'%SELECT%HAVING%')))
+ADD TARGET package0.event_file(SET filename=N'C:\temp\testeventsession.xel',max_file_size=(9216),max_rollover_files=(2))
+WITH (MAX_MEMORY=2048 KB,EVENT_RETENTION_MODE=ALLOW_SINGLE_EVENT_LOSS,MAX_DISPATCH_LATENCY=3 SECONDS,MAX_EVENT_SIZE=0 KB,MEMORY_PARTITION_MODE=NONE,TRACK_CAUSALITY=OFF,STARTUP_STATE=OFF)
+GO
+
+
+-- ALTER to start and stop the event session
+
+ALTER EVENT SESSION [YourSession]
+	ON SERVER
+    --ON DATABASE
+    STATE = START;   -- STOP;
+
+
+-- Test Event
+
+SELECT
+        c.name,
+        Count(*)  AS [Count-Per-Column-Repeated-Name]
+    FROM
+             sys.syscolumns  AS c
+        JOIN sys.sysobjects  AS o
+
+            ON o.id = c.id
+    WHERE
+        o.type = 'V'
+        AND
+        c.name like '%event%'
+    GROUP BY
+        c.name
+    HAVING
+        Count(*) >= 2   --2     -- Try both values during session.
+    ORDER BY
+        c.name;
+
+
+-- Tidy Up
+
+DROP EVENT SESSION [YourSession] ON SERVER
+GO
+
+--Returns a row for each available event whose name contains the three character string 'sql'
+
+SELECT   -- Find an event you want.
+        p.name         AS [Package-Name],
+        o.object_type,
+        o.name         AS [Object-Name],
+        o.description  AS [Object-Descr],
+        p.guid         AS [Package-Guid]
+    FROM
+              sys.dm_xe_packages  AS p
+        JOIN  sys.dm_xe_objects   AS o
+
+                ON  p.guid = o.package_guid
+    WHERE
+        o.object_type = 'event'   --'action'  --'target'
+        AND
+        p.name LIKE '%'
+        AND
+        o.name LIKE '%sql%'
+    ORDER BY
+        p.name, o.object_type, o.name;
